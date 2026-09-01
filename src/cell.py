@@ -44,6 +44,7 @@ class Cell():
                         f"Corroborating reports found: "
                         f"{existing_report['report_id']} and {received_report['report_id']}"
                     )
+                    self.boost_confidence(existing_report["report_id"], received_report["confidence"])
 
         self.known_reports[report["report_id"]] = received_report
 
@@ -88,6 +89,17 @@ class Cell():
         return self.known_reports[report_id]["confidence"]
 
 
+    def boost_confidence(self, report_id, boost_factor):
+        if report_id in self.known_reports:
+            self.known_reports[report_id]["confidence"] = (
+                self.known_reports[report_id]["confidence"] + (1 - self.known_reports[report_id]["confidence"]) * boost_factor
+            )
+
+            return self.known_reports[report_id]["confidence"]
+
+        return None
+
+
     def is_same_threat(self, report1, report2):
         time1 = datetime.fromisoformat(report1["timestamp"])
         time2 = datetime.fromisoformat(report2["timestamp"])
@@ -130,3 +142,5 @@ if __name__ == "__main__":
 
     print("\nCELL-B known reports:")
     print(Cell_B.known_reports)
+    print(Cell_B.known_reports["R001"]["confidence"])
+    print(Cell_B.known_reports["R002"]["confidence"])
