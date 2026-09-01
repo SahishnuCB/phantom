@@ -36,6 +36,15 @@ class Cell():
         received_report = report.copy()
         received_report["received_from"] = sender_cell_id
         received_report["hop_count"] += 1
+
+        for existing_report in self.known_reports.values():
+            if existing_report["report_id"] != received_report["report_id"]:
+                if self.is_same_threat(existing_report, received_report):
+                    print(
+                        f"Corroborating reports found: "
+                        f"{existing_report['report_id']} and {received_report['report_id']}"
+                    )
+
         self.known_reports[report["report_id"]] = received_report
 
         if received_report["hop_count"] >= self.max_hops:
@@ -72,30 +81,33 @@ class Cell():
             neighbour.send_report(report_id, neighbour)
 
 
+    def decay_confidence(self, report_id, decay_factor):
+        if report_id in self.known_reports:
+            self.known_reports[report_id]["confidence"] *= decay_factor
+
+        return self.known_reports[report_id]["confidence"]
+
+
+    def is_same_threat(self, report1, report2):
+        time1 = datetime.fromisoformat(report1["timestamp"])
+        time2 = datetime.fromisoformat(report2["timestamp"])
+        time_difference = abs((time1 - time2).total_seconds())
+
+        if (report1["threat_type"] == report2["threat_type"]
+            and report1["source_or_target"] == report2["source_or_target"]
+            and time_difference <= 60):
+            return True
+
+        return False
+
 
 if __name__ == "__main__":
     Cell_A = Cell("CELL-A")
     Cell_B = Cell("CELL-B")
     Cell_C = Cell("CELL-C")
-    Cell_D = Cell("CELL-D")
-    Cell_E = Cell("CELL-E")
-    Cell_F = Cell("CELL-F")
 
     Cell_A.add_neighbour(Cell_B)
-
-    Cell_B.add_neighbour(Cell_A)
-    Cell_B.add_neighbour(Cell_C)
-
     Cell_C.add_neighbour(Cell_B)
-    Cell_C.add_neighbour(Cell_D)
-
-    Cell_D.add_neighbour(Cell_C)
-    Cell_D.add_neighbour(Cell_E)
-
-    Cell_E.add_neighbour(Cell_D)
-    Cell_E.add_neighbour(Cell_F)
-
-    Cell_F.add_neighbour(Cell_E)
 
     Cell_A.create_report(
         "R001",
@@ -105,11 +117,16 @@ if __name__ == "__main__":
         "40 ports contacted in 5 seconds",
     )
 
-    Cell_A.send_report("R001", Cell_B)
+    Cell_C.create_report(
+        "R002",
+        "port_scan",
+        "192.168.1.50",
+        0.7,
+        "38 ports contacted in 5 seconds",
+    )
 
-    print("CELL-A:", Cell_A.known_reports)
-    print("CELL-B:", Cell_B.known_reports)
-    print("CELL-C:", Cell_C.known_reports)
-    print("CELL-D:", Cell_D.known_reports)
-    print("CELL-E:", Cell_E.known_reports)
-    print("CELL-F:", Cell_F.known_reports)
+    Cell_A.send_report("R001", Cell_B)
+    Cell_C.send_report("R002", Cell_B)
+
+    print("\nCELL-B known reports:")
+    print(Cell_B.known_reports)
