@@ -30,10 +30,15 @@ class Cell():
         if report["report_id"] in self.known_reports:
             print(f"Report {report['report_id']} already known by {self.cell_id}.")
             return
-        
+
         received_report = report.copy()
         received_report["received_from"] = sender_cell_id
         self.known_reports[report["report_id"]] = received_report
+
+        for neighbour in self.neighbours:
+            if neighbour.cell_id != sender_cell_id:
+                neighbour.receive_report(received_report, self.cell_id)
+
         return received_report
 
 
@@ -62,6 +67,7 @@ class Cell():
 
 Cell_A = Cell("CELL-A")
 Cell_B = Cell("CELL-B")
+Cell_C = Cell("CELL-C")
 
 A_report = Cell_A.create_report(
     "R001",
@@ -71,15 +77,17 @@ A_report = Cell_A.create_report(
     "40 ports contacted in 5 seconds",
 )
 
-print(Cell_B.known_reports)
 
-print("-" * 80)
+if __name__ == "__main__":
+    Cell_A.add_neighbour(Cell_B)
 
-Cell_A.send_report("R001", Cell_B)
-print(Cell_B.known_reports)
+    Cell_B.add_neighbour(Cell_A)
+    Cell_B.add_neighbour(Cell_C)
 
-print("-" * 80)
+    Cell_C.add_neighbour(Cell_B)
 
-Cell_A.add_neighbour(Cell_B)
-for neighbour in Cell_A.neighbours:
-    print(f"{Cell_A.cell_id} has neighbour {neighbour.cell_id}.")
+    Cell_A.send_report("R001", Cell_B)
+
+    print(f"Cell C known reports: {Cell_C.known_reports}")
+
+
