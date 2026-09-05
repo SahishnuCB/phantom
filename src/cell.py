@@ -24,6 +24,7 @@ class Cell():
             "timestamp": datetime.now().isoformat(),
             "evidence": evidence,
             "last_supported": datetime.now().isoformat(),
+            "corroborated": False,
         }
 
         self.known_reports[report_id] = report
@@ -46,6 +47,8 @@ class Cell():
         for existing_report in self.known_reports.values():
             if existing_report["report_id"] != received_report["report_id"]:
                 if self.is_same_threat(existing_report, received_report):
+                    existing_report["corroborated"] = True
+                    received_report["corroborated"] = True
                     print(
                         f"Corroborating reports found: "
                         f"{existing_report['report_id']} and {received_report['report_id']}"
@@ -138,7 +141,7 @@ class Cell():
                 datetime.now() - last_supported
                 ).total_seconds()
 
-            if time_difference > 60:
+            if time_difference > 2:
                 self.decay_confidence(report_id, decay_factor)
                 if self.known_reports[report_id]["confidence"] < 0.3:
                     self.archive_report(report_id)
@@ -146,6 +149,11 @@ class Cell():
 
     def archive_report(self, report_id):
         if report_id in self.known_reports:
+            report = self.known_reports[report_id]
+
+            if report["corroborated"] == False:
+                self.decrease_trust(report["reporter_cell_id"], 0.05)
+
             self.report_archive.append(self.known_reports[report_id])
             del self.known_reports[report_id]
 
@@ -155,21 +163,26 @@ class Cell():
             self.trust_scores[cell_id] = min(1.0, self.trust_scores[cell_id] + increment)
 
 
+    def decrease_trust(self, cell_id, decrement):
+        if cell_id in self.trust_scores:
+            self.trust_scores[cell_id] = max(0.0, self.trust_scores[cell_id] - decrement)
+
+
 if __name__ == "__main__":
+    import time
 
     Cell_A = Cell("Cell_A")
     Cell_B = Cell("Cell_B")
     Cell_C = Cell("Cell_C")
 
     Cell_A.add_neighbour(Cell_B)
-    
     Cell_C.add_neighbour(Cell_B)
 
     Cell_A.create_report(
         "R001",
         "port_scan",
         "192.168.1.50",
-        0.8,
+        0.32,
         "40 ports contacted in 5 seconds",
     )
 
@@ -177,18 +190,25 @@ if __name__ == "__main__":
         "R002",
         "port_scan",
         "192.168.1.50",
-        0.7,
-        "38 ports connected in 5 seconds",
+        0.32,
+        "38 ports contacted in 5 seconds",
     )
 
     Cell_A.send_report("R001", Cell_B)
-
-    Cell_B.trust_scores["Cell_C"] = 0.5
-
-    print("Before corroboration:")
-    print(Cell_B.trust_scores)
-
     Cell_C.send_report("R002", Cell_B)
 
-    print("After corroboration:")
-    print(Cell_B.trust_scores)
+    print("Before decay:")
+    print("Trust scores:", Cell_B.trust_scores)
+    print("R001 corroborated:", Cell_B.known_reports["R001"]["corroborated"])
+    print("R002 corroborated:", Cell_B.known_reports["R002"]["corroborated"])
+
+    time.sleep(3)
+
+    Cell_B.decay_all_reports(0.9)
+
+    print("\nAfter decay:")
+    print("Trust scores:", Cell_B.trust_scores)
+    print("-" * 80)
+    print("Known reports:", Cell_B.known_reports)
+    print("-" * 80)
+    print("Archive:", Cell_B.report_archive)
