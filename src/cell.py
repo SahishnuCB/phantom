@@ -9,6 +9,7 @@ class Cell():
         self.max_hops = 5
         self.report_archive = []
         self.trust_scores = {}
+        self.bad_reports = {}
 
         print(f"{self.cell_id} is online.")
 
@@ -60,9 +61,12 @@ class Cell():
                         received_report["confidence"] * sender_trust
                     )
 
+                    trust_increment = 0.05 * effective_support
+
                     self.boost_confidence(existing_report["report_id"], effective_support)
 
-                    self.increase_trust(existing_report["reporter_cell_id"], 0.05)
+                    self.increase_trust(existing_report["reporter_cell_id"], trust_increment)
+                    self.increase_trust(received_report["reporter_cell_id"], trust_increment)
 
         self.known_reports[report["report_id"]] = received_report
 
@@ -151,8 +155,23 @@ class Cell():
         if report_id in self.known_reports:
             report = self.known_reports[report_id]
 
+            trust_decrement = 0.05 * (1 - self.trust_scores[report["reporter_cell_id"]])
+
             if report["corroborated"] == False:
-                self.decrease_trust(report["reporter_cell_id"], 0.05)
+                reporter_cell_id = report["reporter_cell_id"]
+
+                if reporter_cell_id not in self.bad_reports:
+                    self.bad_reports[reporter_cell_id] = 1
+                else:
+                    self.bad_reports[reporter_cell_id] += 1
+
+                bad_report_count = self.bad_reports[reporter_cell_id]
+
+                trust_decrement = (
+                    0.05 * bad_report_count * (1 - self.trust_scores[reporter_cell_id])
+                    )
+
+                self.decrease_trust(report["reporter_cell_id"], trust_decrement)
 
             self.report_archive.append(self.known_reports[report_id])
             del self.known_reports[report_id]
@@ -173,42 +192,34 @@ if __name__ == "__main__":
 
     Cell_A = Cell("Cell_A")
     Cell_B = Cell("Cell_B")
-    Cell_C = Cell("Cell_C")
 
     Cell_A.add_neighbour(Cell_B)
-    Cell_C.add_neighbour(Cell_B)
 
-    Cell_A.create_report(
-        "R001",
-        "port_scan",
-        "192.168.1.50",
-        0.32,
-        "40 ports contacted in 5 seconds",
-    )
+    reports = [
+        ("R001", 0.32),
+        ("R002", 0.32),
+        ("R003", 0.32),
+    ]
 
-    Cell_C.create_report(
-        "R002",
-        "port_scan",
-        "192.168.1.50",
-        0.32,
-        "38 ports contacted in 5 seconds",
-    )
+    for report_id, confidence in reports:
+        Cell_A.create_report(
+            report_id,
+            "port_scan",
+            "192.168.1.50",
+            confidence,
+            f"Test evidence for {report_id}",
+        )
 
-    Cell_A.send_report("R001", Cell_B)
-    Cell_C.send_report("R002", Cell_B)
+        Cell_A.send_report(report_id, Cell_B)
 
-    print("Before decay:")
-    print("Trust scores:", Cell_B.trust_scores)
-    print("R001 corroborated:", Cell_B.known_reports["R001"]["corroborated"])
-    print("R002 corroborated:", Cell_B.known_reports["R002"]["corroborated"])
+        print(f"\nBefore archiving {report_id}")
+        print(f"Trust: {Cell_B.trust_scores}")
+        print(f"Bad reports: {Cell_B.bad_reports}")
 
-    time.sleep(3)
+        time.sleep(3)
 
-    Cell_B.decay_all_reports(0.9)
+        Cell_B.decay_all_reports(0.9)
 
-    print("\nAfter decay:")
-    print("Trust scores:", Cell_B.trust_scores)
-    print("-" * 80)
-    print("Known reports:", Cell_B.known_reports)
-    print("-" * 80)
-    print("Archive:", Cell_B.report_archive)
+        print(f"\nAfter archiving {report_id}")
+        print(f"Trust: {Cell_B.trust_scores}")
+        print(f"Bad reports: {Cell_B.bad_reports}")
