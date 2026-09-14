@@ -68,6 +68,9 @@ class Cell():
                     self.increase_trust(existing_report["reporter_cell_id"], trust_increment)
                     self.increase_trust(received_report["reporter_cell_id"], trust_increment)
 
+                    self.reduce_bad_report_count(existing_report["reporter_cell_id"])
+                    self.reduce_bad_report_count(received_report["reporter_cell_id"])
+
         self.known_reports[report["report_id"]] = received_report
 
         if received_report["hop_count"] >= self.max_hops:
@@ -187,39 +190,49 @@ class Cell():
             self.trust_scores[cell_id] = max(0.0, self.trust_scores[cell_id] - decrement)
 
 
+    def reduce_bad_report_count(self, cell_id):
+        if cell_id in self.bad_reports:
+            self.bad_reports[cell_id] -= 1
+
+            if self.bad_reports[cell_id] <= 0:
+                del self.bad_reports[cell_id]
+            
+
+
 if __name__ == "__main__":
     import time
 
     Cell_A = Cell("Cell_A")
     Cell_B = Cell("Cell_B")
+    Cell_C = Cell("Cell_C")
 
     Cell_A.add_neighbour(Cell_B)
+    Cell_C.add_neighbour(Cell_B)
 
-    reports = [
-        ("R001", 0.32),
-        ("R002", 0.32),
-        ("R003", 0.32),
-    ]
+    Cell_B.bad_reports["Cell_A"] = 2
+    Cell_B.bad_reports["Cell_C"] = 1
 
-    for report_id, confidence in reports:
-        Cell_A.create_report(
-            report_id,
-            "port_scan",
-            "192.168.1.50",
-            confidence,
-            f"Test evidence for {report_id}",
-        )
+    Cell_A.create_report(
+                "R001",
+                "port_scan",
+                "192.168.1.50",
+                0.8,
+                "40 ports contacted in 5 seconds",
+            )
 
-        Cell_A.send_report(report_id, Cell_B)
+    Cell_C.create_report(
+                "R002",
+                "port_scan",
+                "192.168.1.50",
+                0.7,
+                "38 ports contacted in 5 seconds",
+            )
 
-        print(f"\nBefore archiving {report_id}")
-        print(f"Trust: {Cell_B.trust_scores}")
-        print(f"Bad reports: {Cell_B.bad_reports}")
+    print("Before corroboration")
+    print(Cell_B.bad_reports)
 
-        time.sleep(3)
+    Cell_A.send_report("R001", Cell_B)
+    Cell_C.send_report("R002", Cell_B)
 
-        Cell_B.decay_all_reports(0.9)
-
-        print(f"\nAfter archiving {report_id}")
-        print(f"Trust: {Cell_B.trust_scores}")
-        print(f"Bad reports: {Cell_B.bad_reports}")
+    print("\nAfter corroboration")
+    print(Cell_B.bad_reports)
