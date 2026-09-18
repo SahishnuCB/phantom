@@ -10,9 +10,10 @@ class Cell():
         self.report_archive = []
         self.trust_scores = {}
         self.bad_reports = {}
+        self.good_reports = {}
+        self.reputation_history = {}
 
         print(f"{self.cell_id} is online.")
-
 
     def create_report(self, report_id, threat_type, source_or_target, confidence, evidence):
         report = {
@@ -31,7 +32,6 @@ class Cell():
         self.known_reports[report_id] = report
 
         return report
-
 
     def receive_report(self, report, sender_cell_id):
         if sender_cell_id not in self.trust_scores:
@@ -71,6 +71,18 @@ class Cell():
                     self.reduce_bad_report_count(existing_report["reporter_cell_id"])
                     self.reduce_bad_report_count(received_report["reporter_cell_id"])
 
+                    existing_reporter = existing_report["reporter_cell_id"]
+                    received_reporter = received_report["reporter_cell_id"]
+
+                    self.record_good_report(existing_reporter)
+                    self.record_good_report(received_reporter)
+
+                    self.reduce_bad_report_count(existing_reporter)
+                    self.reduce_bad_report_count(received_reporter)
+
+                    self.save_reputation_snapshot(existing_reporter)
+                    self.save_reputation_snapshot(received_reporter)
+
         self.known_reports[report["report_id"]] = received_report
 
         if received_report["hop_count"] >= self.max_hops:
@@ -83,7 +95,6 @@ class Cell():
 
         return received_report
 
-
     def send_report(self, report_id, target_cell):
         if report_id in self.known_reports:
             target_cell.receive_report(self.known_reports[report_id], self.cell_id)
@@ -92,11 +103,9 @@ class Cell():
         print(f"Report {report_id} not found in {self.cell_id}.")
         return None
 
-
     def add_neighbour(self, neighbour_cell):
         if neighbour_cell not in self.neighbours:
             self.neighbours.append(neighbour_cell)
-
 
     def send_to_neighbours(self, report_id):
         if report_id not in self.known_reports:
@@ -106,13 +115,11 @@ class Cell():
         for neighbour in self.neighbours:
             neighbour.send_report(report_id, neighbour)
 
-
     def decay_confidence(self, report_id, decay_factor):
         if report_id in self.known_reports:
             self.known_reports[report_id]["confidence"] *= decay_factor
 
         return self.known_reports[report_id]["confidence"]
-
 
     def boost_confidence(self, report_id, boost_factor):
         if report_id in self.known_reports:
@@ -126,7 +133,6 @@ class Cell():
 
         return None
 
-
     def is_same_threat(self, report1, report2):
         time1 = datetime.fromisoformat(report1["timestamp"])
         time2 = datetime.fromisoformat(report2["timestamp"])
@@ -138,7 +144,6 @@ class Cell():
             return True
 
         return False
-
 
     def decay_all_reports(self,decay_factor):
         for report_id in list(self.known_reports):
@@ -152,7 +157,6 @@ class Cell():
                 self.decay_confidence(report_id, decay_factor)
                 if self.known_reports[report_id]["confidence"] < 0.3:
                     self.archive_report(report_id)
-
 
     def archive_report(self, report_id):
         if report_id in self.known_reports:
@@ -179,16 +183,13 @@ class Cell():
             self.report_archive.append(self.known_reports[report_id])
             del self.known_reports[report_id]
 
-
     def increase_trust(self, cell_id, increment):
         if cell_id in self.trust_scores:
             self.trust_scores[cell_id] = min(1.0, self.trust_scores[cell_id] + increment)
 
-
     def decrease_trust(self, cell_id, decrement):
         if cell_id in self.trust_scores:
             self.trust_scores[cell_id] = max(0.0, self.trust_scores[cell_id] - decrement)
-
 
     def reduce_bad_report_count(self, cell_id):
         if cell_id in self.bad_reports:
@@ -196,12 +197,101 @@ class Cell():
 
             if self.bad_reports[cell_id] <= 0:
                 del self.bad_reports[cell_id]
-            
+
+    def record_good_report(self, cell_id):
+        if cell_id not in self.good_reports:
+            self.good_reports[cell_id] = 1
+        else:
+            self.good_reports[cell_id] += 1
+
+    def get_good_report_count(self, cell_id):
+        return self.good_reports.get(cell_id, 0)
+
+    def get_bad_report_count(self, cell_id):
+        return self.bad_reports.get(cell_id, 0)
+
+    def get_reliability_ratio(self, cell_id):
+        good_reports = self.get_good_report_count(cell_id)
+        bad_reports = self.get_bad_report_count(cell_id)
+
+        total_reports = good_reports + bad_reports
+
+        if total_reports == 0:
+            return 0.5
+
+        return good_reports / total_reports
+
+    def calculate_reputation_score(self, cell_id):
+        trust_score = self.trust_scores.get(cell_id, 0.5)
+        reliability_ratio = self.get_reliability_ratio(cell_id)
+
+        reputation_score = (
+            trust_score * 0.6
+            + reliability_ratio * 0.4
+        )
+
+        return round(reputation_score, 3)
+
+    def classify_reputation(self, cell_id):
+        reputation_score = self.calculate_reputation_score(cell_id)
+
+        if reputation_score >= 0.8:
+            return "highly_trusted"
+
+        if reputation_score >= 0.6:
+            return "trusted"
+
+        if reputation_score >= 0.4:
+            return "neutral"
+
+        if reputation_score >= 0.2:
+            return "suspicious"
+
+        return "untrusted"
+
+    def get_reputation_summary(self, cell_id):
+        return {
+            "cell_id": cell_id,
+            "trust_score": round(
+                self.trust_scores.get(cell_id, 0.5),
+                3
+            ),
+            "good_reports": self.get_good_report_count(cell_id),
+            "bad_reports": self.get_bad_report_count(cell_id),
+            "reliability_ratio": round(
+                self.get_reliability_ratio(cell_id),
+                3
+            ),
+            "reputation_score": self.calculate_reputation_score(cell_id),
+            "reputation_class": self.classify_reputation(cell_id),
+        }
+
+    def save_reputation_snapshot(self, cell_id):
+        if cell_id not in self.reputation_history:
+            self.reputation_history[cell_id] = []
+
+        snapshot = self.get_reputation_summary(cell_id)
+
+        snapshot["timestamp"] = datetime.now().isoformat()
+
+        self.reputation_history[cell_id].append(snapshot)
+
+        return snapshot
+
+    def print_reputation_summary(self, cell_id):
+        summary = self.get_reputation_summary(cell_id)
+
+        print(f"\nReputation summary for {cell_id}")
+        print("-" * 40)
+        print(f"Trust score       : {summary['trust_score']}")
+        print(f"Good reports      : {summary['good_reports']}")
+        print(f"Bad reports       : {summary['bad_reports']}")
+        print(f"Reliability ratio : {summary['reliability_ratio']}")
+        print(f"Reputation score  : {summary['reputation_score']}")
+        print(f"Classification    : {summary['reputation_class']}")
 
 
 if __name__ == "__main__":
-    import time
-
     Cell_A = Cell("Cell_A")
     Cell_B = Cell("Cell_B")
     Cell_C = Cell("Cell_C")
@@ -209,30 +299,27 @@ if __name__ == "__main__":
     Cell_A.add_neighbour(Cell_B)
     Cell_C.add_neighbour(Cell_B)
 
-    Cell_B.bad_reports["Cell_A"] = 2
-    Cell_B.bad_reports["Cell_C"] = 1
-
     Cell_A.create_report(
-                "R001",
-                "port_scan",
-                "192.168.1.50",
-                0.8,
-                "40 ports contacted in 5 seconds",
-            )
+        "R001",
+        "port_scan",
+        "192.168.1.50",
+        0.8,
+        "40 ports contacted in 5 seconds",
+    )
 
     Cell_C.create_report(
-                "R002",
-                "port_scan",
-                "192.168.1.50",
-                0.7,
-                "38 ports contacted in 5 seconds",
-            )
-
-    print("Before corroboration")
-    print(Cell_B.bad_reports)
+        "R002",
+        "port_scan",
+        "192.168.1.50",
+        0.75,
+        "37 ports contacted in 5 seconds",
+    )
 
     Cell_A.send_report("R001", Cell_B)
     Cell_C.send_report("R002", Cell_B)
 
-    print("\nAfter corroboration")
-    print(Cell_B.bad_reports)
+    Cell_B.print_reputation_summary("Cell_A")
+    Cell_B.print_reputation_summary("Cell_C")
+
+    print("\nReputation history:")
+    print(Cell_B.reputation_history)
