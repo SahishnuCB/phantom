@@ -12,6 +12,7 @@ class Cell():
         self.bad_reports = {}
         self.good_reports = {}
         self.reputation_history = {}
+        self.threat_profiles = {}
 
         print(f"{self.cell_id} is online.")
 
@@ -290,14 +291,248 @@ class Cell():
         print(f"Reputation score  : {summary['reputation_score']}")
         print(f"Classification    : {summary['reputation_class']}")
 
+    def get_threat_key(self, report):
+        return (
+            report["threat_type"],
+            report["source_or_target"]
+        )
+
+    def calculate_combined_confidence(self, reports):
+        remaining_uncertainty = 1.0
+
+        for report in reports:
+            reporter = report["reporter_cell_id"]
+
+            if reporter == self.cell_id:
+                reporter_trust = 1.0
+            else:
+                reporter_trust = self.trust_scores.get(
+                    reporter,
+                    0.5
+                )
+
+            weighted_confidence = (
+                report["confidence"] * reporter_trust
+            )
+
+            remaining_uncertainty *= (
+                1 - weighted_confidence
+            )
+
+        combined_confidence = (
+            1 - remaining_uncertainty
+        )
+
+        return round(
+            min(1.0, combined_confidence),
+            3
+        )
+
+    def classify_threat_severity(
+        self,
+        combined_confidence,
+        reporter_count
+    ):
+        if (
+            combined_confidence >= 0.9
+            and reporter_count >= 3
+        ):
+            return "critical"
+
+        if combined_confidence >= 0.75:
+            return "high"
+
+        if combined_confidence >= 0.5:
+            return "medium"
+
+        return "low"
+
+    def classify_threat_status(
+        self,
+        combined_confidence,
+        reporter_count
+    ):
+        if (
+            combined_confidence >= 0.8
+            and reporter_count >= 2
+        ):
+            return "confirmed"
+
+        if combined_confidence >= 0.5:
+            return "suspected"
+
+        return "unverified"
+
+    def rebuild_threat_profile(
+        self,
+        threat_type,
+        source_or_target
+    ):
+        matching_reports = []
+
+        for report in self.known_reports.values():
+            if (
+                report["threat_type"] == threat_type
+                and
+                report["source_or_target"]
+                == source_or_target
+            ):
+                matching_reports.append(report)
+
+        threat_key = (
+            threat_type,
+            source_or_target
+        )
+
+        if not matching_reports:
+            self.threat_profiles.pop(
+                threat_key,
+                None
+            )
+            return None
+
+        reporters = set()
+
+        for report in matching_reports:
+            reporters.add(
+                report["reporter_cell_id"]
+            )
+
+        combined_confidence = (
+            self.calculate_combined_confidence(
+                matching_reports
+            )
+        )
+
+        severity = self.classify_threat_severity(
+            combined_confidence,
+            len(reporters)
+        )
+
+        status = self.classify_threat_status(
+            combined_confidence,
+            len(reporters)
+        )
+
+        profile = {
+            "threat_type": threat_type,
+            "source_or_target": source_or_target,
+            "report_count": len(
+                matching_reports
+            ),
+            "reporter_count": len(reporters),
+            "reporters": sorted(reporters),
+            "combined_confidence":
+                combined_confidence,
+            "severity": severity,
+            "status": status,
+            "last_updated":
+                datetime.now().isoformat(),
+        }
+
+        self.threat_profiles[
+            threat_key
+        ] = profile
+
+        return profile
+
+    def rebuild_all_threat_profiles(self):
+        threat_keys = set()
+
+        for report in self.known_reports.values():
+            threat_keys.add(
+                self.get_threat_key(report)
+            )
+
+        self.threat_profiles = {}
+
+        for threat_type, source_or_target in threat_keys:
+            self.rebuild_threat_profile(
+                threat_type,
+                source_or_target
+            )
+
+    def get_threat_profile(
+        self,
+        threat_type,
+        source_or_target
+    ):
+        threat_key = (
+            threat_type,
+            source_or_target
+        )
+
+        return self.threat_profiles.get(
+            threat_key
+        )
+
+    def print_threat_profile(
+        self,
+        threat_type,
+        source_or_target
+    ):
+        profile = self.get_threat_profile(
+            threat_type,
+            source_or_target
+        )
+
+        if profile is None:
+            print("Threat profile not found.")
+            return
+
+        print("\nThreat Profile")
+        print("-" * 40)
+
+        print(
+            f"Threat type        : "
+            f"{profile['threat_type']}"
+        )
+
+        print(
+            f"Source / target    : "
+            f"{profile['source_or_target']}"
+        )
+
+        print(
+            f"Reports            : "
+            f"{profile['report_count']}"
+        )
+
+        print(
+            f"Independent cells  : "
+            f"{profile['reporter_count']}"
+        )
+
+        print(
+            f"Reporters          : "
+            f"{', '.join(profile['reporters'])}"
+        )
+
+        print(
+            f"Confidence         : "
+            f"{profile['combined_confidence']}"
+        )
+
+        print(
+            f"Severity           : "
+            f"{profile['severity']}"
+        )
+
+        print(
+            f"Status             : "
+            f"{profile['status']}"
+        )
+
 
 if __name__ == "__main__":
     Cell_A = Cell("Cell_A")
     Cell_B = Cell("Cell_B")
     Cell_C = Cell("Cell_C")
+    Cell_D = Cell("Cell_D")
 
     Cell_A.add_neighbour(Cell_B)
     Cell_C.add_neighbour(Cell_B)
+    Cell_D.add_neighbour(Cell_B)
 
     Cell_A.create_report(
         "R001",
@@ -311,15 +546,22 @@ if __name__ == "__main__":
         "R002",
         "port_scan",
         "192.168.1.50",
-        0.75,
-        "37 ports contacted in 5 seconds",
+        0.7,
+        "38 ports contacted in 5 seconds",
+    )
+
+    Cell_D.create_report(
+        "R003",
+        "port_scan",
+        "192.168.1.50",
+        0.6,
+        "35 ports contacted in 5 seconds",
     )
 
     Cell_A.send_report("R001", Cell_B)
     Cell_C.send_report("R002", Cell_B)
+    Cell_D.send_report("R003", Cell_B)
 
-    Cell_B.print_reputation_summary("Cell_A")
-    Cell_B.print_reputation_summary("Cell_C")
+    Cell_B.rebuild_all_threat_profiles()
 
-    print("\nReputation history:")
-    print(Cell_B.reputation_history)
+    Cell_B.print_threat_profile("port_scan", "192.168.1.50")
